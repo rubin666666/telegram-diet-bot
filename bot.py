@@ -370,6 +370,39 @@ def adjust_calories_for_goal(daily_calories, goal):
     else:
         return daily_calories
 
+def calculate_bmi(weight, height):
+    """Розрахунок індексу маси тіла (ІМТ)"""
+    height_m = height / 100  # переводимо см в метри
+    bmi = weight / (height_m ** 2)
+    return round(bmi, 1)
+
+def get_bmi_category(bmi):
+    """Визначення категорії ІМТ"""
+    if bmi < 18.5:
+        return "недостатня вага", "🔵"
+    elif 18.5 <= bmi < 25:
+        return "нормальна вага", "🟢"
+    elif 25 <= bmi < 30:
+        return "надлишкова вага", "🟡"
+    else:
+        return "ожиріння", "🔴"
+
+def calculate_water_intake(weight, activity_level):
+    """Розрахунок норми води"""
+    base_water = weight * 35  # 35 мл на кг ваги
+    
+    # Коригування залежно від активності
+    activity_multipliers = {
+        'мінімальна': 1.0,
+        'легка': 1.1,
+        'помірна': 1.2,
+        'активна': 1.3,
+        'дуже активна': 1.4
+    }
+    
+    water_ml = base_water * activity_multipliers.get(activity_level, 1.0)
+    return round(water_ml)
+
 @dp.message(CommandStart())
 async def start_handler(message: Message):
     """Обробник команди /start"""
@@ -379,13 +412,23 @@ async def start_handler(message: Message):
         [InlineKeyboardButton(text="📊 Створити профіль", callback_data="create_profile")],
         [InlineKeyboardButton(text="🍎 Розрахувати калорії продукту", callback_data="calculate_food")],
         [InlineKeyboardButton(text="📈 Мій профіль", callback_data="my_profile")],
+        [InlineKeyboardButton(text="💧 Норма води", callback_data="water_intake")],
+        [InlineKeyboardButton(text="⚖️ Розрахунок ІМТ", callback_data="calculate_bmi")],
+        [InlineKeyboardButton(text="💡 Щоденні поради", callback_data="daily_tips")],
         [InlineKeyboardButton(text="ℹ️ Допомога", callback_data="help")]
     ])
     
-    await message.answer(
-        f"Привіт, {message.from_user.first_name}! 👋\n\n"
-        "Я бот для розрахування калорій та підтримки дієти! 🥗\n\n"
-        "Що ти хочеш зробити?",
+    # Відправляємо фото з привітанням
+    photo_url = "https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=800&h=600&fit=crop"
+    
+    await message.answer_photo(
+        photo=photo_url,
+        caption=f"Привіт, {message.from_user.first_name}! 👋\n\n"
+                "Я бот для розрахування калорій та підтримки дієти! 🥗\n\n"
+                "📊 Розраховую BMR та денну норму калорій\n"
+                "🍎 Знаю калорійність 250+ продуктів\n"
+                "💡 Даю персональні рекомендації\n\n"
+                "Що ти хочеш зробити?",
         reply_markup=keyboard
     )
 
@@ -587,12 +630,18 @@ async def calculate_food_start(callback: CallbackQuery, state: FSMContext):
         food_list += "\n".join([f"• {food}" for food in foods])
         food_list += "\n"
     
-    await callback.message.edit_text(
-        f"🍎 Розрахунок калорій продукту\n\n"
-        f"У базі є {len(food_db)} продуктів! Ось деякі з них:\n"
-        f"{food_list}\n"
-        f"...та багато інших! 🥜🍯🍄\n\n"
-        f"Просто введіть назву продукту:"
+    # Фото з різними продуктами
+    food_photo = "https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=800&h=600&fit=crop"
+    
+    # Видаляємо попереднє повідомлення та відправляємо нове з фото
+    await callback.message.delete()
+    await callback.message.answer_photo(
+        photo=food_photo,
+        caption=f"🍎 Розрахунок калорій продукту\n\n"
+                f"У базі є {len(food_db)} продуктів! Ось деякі з них:\n"
+                f"{food_list}\n"
+                f"...та багато інших! 🥜🍯🍄\n\n"
+                f"Просто введіть назву продукту:"
     )
     await state.set_state(FoodCalories.waiting_for_food)
 
@@ -742,7 +791,36 @@ async def process_food_weight(message: Message, state: FSMContext):
             [InlineKeyboardButton(text="🏠 Головне меню", callback_data="main_menu")]
         ])
         
-        await message.answer(result_text, reply_markup=keyboard)
+        # Вибираємо картинку залежно від типу продукту
+        product_photos = {
+            # Фрукти
+            "яблуко": "https://images.unsplash.com/photo-1567306226416-28f0efdc88ce?w=400&h=400&fit=crop",
+            "банан": "https://images.unsplash.com/photo-1571771894821-ce9b6c11b08e?w=400&h=400&fit=crop",
+            # М'ясо
+            "куриця": "https://images.unsplash.com/photo-1587593810167-148ebbc35e5e?w=400&h=400&fit=crop",
+            "яловичина": "https://images.unsplash.com/photo-1558030137-b7a7b4b3d724?w=400&h=400&fit=crop",
+            # Молочні
+            "молоко": "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=400&h=400&fit=crop",
+            "сир": "https://images.unsplash.com/photo-1486297678162-eb2a19b0a32d?w=400&h=400&fit=crop",
+            # Снеки
+            "піцца": "https://images.unsplash.com/photo-1565299624946-b28f40a0ca4b?w=400&h=400&fit=crop",
+            "бургер": "https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=400&h=400&fit=crop",
+            # Алкоголь
+            "пиво світле": "https://images.unsplash.com/photo-1608270586620-248524c67de9?w=400&h=400&fit=crop",
+            "вино червоне": "https://images.unsplash.com/photo-1547595628-c61a29f496f0?w=400&h=400&fit=crop"
+        }
+        
+        # Загальна картинка для всіх продуктів
+        default_photo = "https://images.unsplash.com/photo-1490645935967-10de6ba17061?w=400&h=400&fit=crop"
+        
+        # Вибираємо фото для конкретного продукту або загальне
+        photo_url = product_photos.get(food_name, default_photo)
+        
+        await message.answer_photo(
+            photo=photo_url,
+            caption=result_text,
+            reply_markup=keyboard
+        )
         await state.clear()
         
     except ValueError:
@@ -790,10 +868,23 @@ async def show_profile(callback: CallbackQuery):
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📊 Оновити профіль", callback_data="create_profile")],
         [InlineKeyboardButton(text="🍎 Розрахувати калорії", callback_data="calculate_food")],
+        [InlineKeyboardButton(text="💧 Норма води", callback_data="water_intake"), InlineKeyboardButton(text="⚖️ ІМТ", callback_data="calculate_bmi")],
         [InlineKeyboardButton(text="🏠 Головне меню", callback_data="main_menu")]
     ])
     
-    await callback.message.edit_text(profile_text, reply_markup=keyboard)
+    # Вибираємо картинку профілю залежно від статі та мети
+    profile_image = "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop"  # fitness profile
+    if user['gender'] == 'жінка':
+        profile_image = "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop"  # female fitness
+    else:
+        profile_image = "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=800&h=600&fit=crop"  # male fitness
+    
+    await callback.message.delete()
+    await callback.message.answer_photo(
+        photo=profile_image,
+        caption=profile_text,
+        reply_markup=keyboard
+    )
 
 @dp.callback_query(F.data == "help")
 async def show_help(callback: CallbackQuery):
@@ -802,16 +893,20 @@ async def show_help(callback: CallbackQuery):
 ℹ️ Довідка по боту
 
 🤖 Що я вмію:
-• Розраховувати базовий метаболізм (BMR)
-• Визначати денну норму калорій
-• Враховувати рівень активності та мету
-• Розраховувати калорійність продуктів
-• Зберігати ваш профіль
-• Давати персональні рекомендації
+• 📊 Розраховувати базовий метаболізм (BMR)
+• 🔥 Визначати денну норму калорій
+• 🍎 Розраховувати калорійність 250+ продуктів
+• 💧 Розраховувати норму води щодня
+• ⚖️ Визначати індекс маси тіла (ІМТ)
+• 💡 Давати щоденні поради для здоров'я
+• 📈 Зберігати персональний профіль
+• 🎯 Персональні рекомендації залежно від мети
 
 📊 Формули розрахунку:
 • BMR (чоловіки): 88.362 + (13.397 × вага) + (4.799 × зріст) - (5.677 × вік)
 • BMR (жінки): 447.593 + (9.247 × вага) + (3.098 × зріст) - (4.330 × вік)
+• ІМТ: вага(кг) / зріст(м)²
+• Норма води: 35 мл × вага × коефіцієнт активності
 
 🎯 Коригування для мети:
 • Схуднути: -500 ккал від норми
@@ -820,13 +915,23 @@ async def show_help(callback: CallbackQuery):
 
 📱 Команди:
 /start - головне меню
+
+🌟 Версія: 2.0 з розширеними функціями
     """
     
     keyboard = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🏠 Головне меню", callback_data="main_menu")]
     ])
     
-    await callback.message.edit_text(help_text, reply_markup=keyboard)
+    # Картинка для довідки
+    help_image = "https://images.unsplash.com/photo-1551963831-b3b1ca40c98e?w=800&h=600&fit=crop"  # brain/knowledge
+    
+    await callback.message.delete()
+    await callback.message.answer_photo(
+        photo=help_image,
+        caption=help_text,
+        reply_markup=keyboard
+    )
 
 @dp.callback_query(F.data == "main_menu")
 async def main_menu(callback: CallbackQuery):
@@ -835,12 +940,209 @@ async def main_menu(callback: CallbackQuery):
         [InlineKeyboardButton(text="📊 Створити профіль", callback_data="create_profile")],
         [InlineKeyboardButton(text="🍎 Розрахувати калорії продукту", callback_data="calculate_food")],
         [InlineKeyboardButton(text="📈 Мій профіль", callback_data="my_profile")],
+        [InlineKeyboardButton(text="💧 Норма води", callback_data="water_intake")],
+        [InlineKeyboardButton(text="⚖️ Розрахунок ІМТ", callback_data="calculate_bmi")],
+        [InlineKeyboardButton(text="💡 Щоденні поради", callback_data="daily_tips")],
         [InlineKeyboardButton(text="ℹ️ Допомога", callback_data="help")]
     ])
     
-    await callback.message.edit_text(
-        f"Головне меню 🏠\n\n"
+    # Картинка для головного меню
+    menu_image = "https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=800&h=600&fit=crop"  # healthy food spread
+    
+    await callback.message.delete()
+    await callback.message.answer_photo(
+        photo=menu_image,
+        caption=f"Головне меню 🏠\n\n"
         "Оберіть, що ви хочете зробити:",
+        reply_markup=keyboard
+    )
+
+@dp.callback_query(F.data == "water_intake")
+async def water_intake(callback: CallbackQuery):
+    """Розрахунок норми води"""
+    user_id = str(callback.from_user.id)
+    
+    if user_id not in users_db:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Створити профіль", callback_data="create_profile")],
+            [InlineKeyboardButton(text="🏠 Головне меню", callback_data="main_menu")]
+        ])
+        await callback.message.edit_text(
+            "💧 Для розрахунку норми води потрібен профіль!\n\n"
+            "Створіть профіль для персональних рекомендацій:",
+            reply_markup=keyboard
+        )
+        return
+    
+    user = users_db[user_id]
+    water_ml = calculate_water_intake(user['weight'], user['activity'])
+    water_glasses = round(water_ml / 250)  # стандартна склянка 250мл
+    
+    water_text = f"""
+💧 Ваша норма води:
+
+📊 Розрахунок:
+• Вага: {user['weight']} кг
+• Активність: {user['activity']}
+• Базова норма: 35 мл/кг
+
+💦 Рекомендації:
+• {water_ml} мл на день
+• Це приблизно {water_glasses} склянок по 250мл
+• Пийте рівномірно протягом дня
+
+💡 Корисні поради:
+• Почніть день зі склянки води
+• Пийте воду за 30 хв до їжі
+• Більше води при тренуваннях
+• Слідкуйте за кольором сечі (має бути світло-жовтою)
+    """
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚖️ Розрахунок ІМТ", callback_data="calculate_bmi")],
+        [InlineKeyboardButton(text="💡 Щоденні поради", callback_data="daily_tips")],
+        [InlineKeyboardButton(text="🏠 Головне меню", callback_data="main_menu")]
+    ])
+    
+    water_image = "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=800&h=600&fit=crop"
+    
+    await callback.message.delete()
+    await callback.message.answer_photo(
+        photo=water_image,
+        caption=water_text,
+        reply_markup=keyboard
+    )
+
+@dp.callback_query(F.data == "calculate_bmi")
+async def calculate_bmi_handler(callback: CallbackQuery):
+    """Розрахунок ІМТ"""
+    user_id = str(callback.from_user.id)
+    
+    if user_id not in users_db:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Створити профіль", callback_data="create_profile")],
+            [InlineKeyboardButton(text="🏠 Головне меню", callback_data="main_menu")]
+        ])
+        await callback.message.edit_text(
+            "⚖️ Для розрахунку ІМТ потрібен профіль!\n\n"
+            "Створіть профіль для персональних рекомендацій:",
+            reply_markup=keyboard
+        )
+        return
+    
+    user = users_db[user_id]
+    bmi = calculate_bmi(user['weight'], user['height'])
+    category, emoji = get_bmi_category(bmi)
+    
+    # Рекомендації залежно від ІМТ
+    recommendations = {
+        "недостатня вага": "Рекомендуємо збільшити калорійність раціону та включити силові тренування",
+        "нормальна вага": "Чудово! Підтримуйте поточний спосіб життя",
+        "надлишкова вага": "Рекомендуємо помірне зниження калорійності та збільшення активності",
+        "ожиріння": "Рекомендуємо звернутися до лікаря та скласти план зниження ваги"
+    }
+    
+    bmi_text = f"""
+⚖️ Ваш індекс маси тіла (ІМТ):
+
+📊 Розрахунок:
+• Зріст: {user['height']} см
+• Вага: {user['weight']} кг
+• ІМТ: {bmi}
+
+{emoji} Категорія: {category}
+
+💡 Рекомендації:
+{recommendations[category]}
+
+📈 Шкала ІМТ:
+🔵 < 18.5 - недостатня вага
+🟢 18.5-24.9 - нормальна вага
+🟡 25.0-29.9 - надлишкова вага
+🔴 ≥ 30.0 - ожиріння
+    """
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💧 Норма води", callback_data="water_intake")],
+        [InlineKeyboardButton(text="💡 Щоденні поради", callback_data="daily_tips")],
+        [InlineKeyboardButton(text="🏠 Головне меню", callback_data="main_menu")]
+    ])
+    
+    bmi_image = "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop"
+    
+    await callback.message.delete()
+    await callback.message.answer_photo(
+        photo=bmi_image,
+        caption=bmi_text,
+        reply_markup=keyboard
+    )
+
+@dp.callback_query(F.data == "daily_tips")
+async def daily_tips(callback: CallbackQuery):
+    """Щоденні поради"""
+    import random
+    
+    tips = [
+        "🥗 Їжте 5 порцій овочів та фруктів на день",
+        "🚶 Робіть мінімум 10,000 кроків щодня",
+        "💤 Спіть 7-9 годин для відновлення організму",
+        "🥛 Пийте воду одразу після пробудження",
+        "🍽️ Їжте повільно та ретельно пережовуйте",
+        "🧘 Практикуйте медитацію 10 хвилин щодня",
+        "🏃 Додайте кардіо-тренування 3 рази на тиждень",
+        "💪 Силові тренування 2-3 рази на тиждень",
+        "🥜 Включайте здорові жири: горіхи, авокадо, олії",
+        "🐟 Їжте рибу 2-3 рази на тиждень",
+        "🚫 Уникайте цукру та обробленої їжі",
+        "📱 Зробіть перерву від телефону під час їжі",
+        "🌅 Отримуйте ранкове сонячне світло",
+        "🍃 Додавайте зелень у кожен прийом їжі",
+        "⏰ Дотримуйтесь режиму харчування",
+        "🧊 П'ите холодну воду для прискорення метаболізму",
+        "🥵 Додавайте гострі спеції для підвищення термогенезу",
+        "🛑 Не їжте за 3 години до сну",
+        "📊 Ведіть щоденник харчування",
+        "🎯 Ставте реалістичні цілі щотижня"
+    ]
+    
+    # Вибираємо 5 випадкових порад
+    daily_tips_list = random.sample(tips, 5)
+    tips_text = "\n".join([f"{i+1}. {tip}" for i, tip in enumerate(daily_tips_list)])
+    
+    user_id = str(callback.from_user.id)
+    personalized_tip = ""
+    
+    if user_id in users_db:
+        user = users_db[user_id]
+        if user['goal'] == 'схуднути':
+            personalized_tip = "\n💡 Персональна порада: Створіть дефіцит калорій 300-500 ккал/день для здорового схуднення."
+        elif user['goal'] == 'набрати вагу':
+            personalized_tip = "\n💡 Персональна порада: Збільште калорійність на 300-500 ккал/день та додайте силові тренування."
+        else:
+            personalized_tip = "\n💡 Персональна порада: Підтримуйте баланс калорій та регулярну активність."
+    
+    tips_full_text = f"""
+💡 Щоденні поради для здоров'я:
+
+{tips_text}
+{personalized_tip}
+
+🌟 Пам'ятайте: маленькі кроки ведуть до великих змін!
+    """
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Нові поради", callback_data="daily_tips")],
+        [InlineKeyboardButton(text="💧 Норма води", callback_data="water_intake")],
+        [InlineKeyboardButton(text="⚖️ Розрахунок ІМТ", callback_data="calculate_bmi")],
+        [InlineKeyboardButton(text="🏠 Головне меню", callback_data="main_menu")]
+    ])
+    
+    tips_image = "https://images.unsplash.com/photo-1506629905107-bb5842dcbc67?w=800&h=600&fit=crop"
+    
+    await callback.message.delete()
+    await callback.message.answer_photo(
+        photo=tips_image,
+        caption=tips_full_text,
         reply_markup=keyboard
     )
 

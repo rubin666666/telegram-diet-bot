@@ -2,7 +2,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -36,6 +36,18 @@ class FoodCalories(StatesGroup):
 
 # База даних користувачів (в реальному проекті краще використовувати БД)
 users_db = {}
+
+# Постійна клавіатура головного меню
+main_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🏠 Головне меню"), KeyboardButton(text="📊 Мій профіль")],
+        [KeyboardButton(text="🍎 Калорії"), KeyboardButton(text="💧 Вода")],
+        [KeyboardButton(text="⚖️ ІМТ"), KeyboardButton(text="💡 Поради")]
+    ],
+    resize_keyboard=True,
+    persistent=True,
+    placeholder="Оберіть дію..."
+)
 
 # База даних продуктів (калорії на 100г)
 food_db = {
@@ -430,6 +442,12 @@ async def start_handler(message: Message):
                 "💡 Даю персональні рекомендації\n\n"
                 "Що ти хочеш зробити?",
         reply_markup=keyboard
+    )
+    
+    # Встановлюємо постійну клавіатуру
+    await message.answer(
+        "🎯 Швидкий доступ до функцій:",
+        reply_markup=main_keyboard
     )
 
 @dp.callback_query(F.data == "create_profile")
@@ -1141,6 +1159,286 @@ async def daily_tips(callback: CallbackQuery):
     
     await callback.message.delete()
     await callback.message.answer_photo(
+        photo=tips_image,
+        caption=tips_full_text,
+        reply_markup=keyboard
+    )
+
+# Обробники текстових команд з постійної клавіатури
+@dp.message(F.text.in_(["🏠 Головне меню", "/menu"]))
+async def keyboard_main_menu(message: Message):
+    """Обробник кнопки головного меню"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Створити профіль", callback_data="create_profile")],
+        [InlineKeyboardButton(text="🍎 Розрахувати калорії продукту", callback_data="calculate_food")],
+        [InlineKeyboardButton(text="📈 Мій профіль", callback_data="my_profile")],
+        [InlineKeyboardButton(text="💧 Норма води", callback_data="water_intake")],
+        [InlineKeyboardButton(text="⚖️ Розрахунок ІМТ", callback_data="calculate_bmi")],
+        [InlineKeyboardButton(text="💡 Щоденні поради", callback_data="daily_tips")],
+        [InlineKeyboardButton(text="ℹ️ Допомога", callback_data="help")]
+    ])
+    
+    menu_image = "https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=800&h=600&fit=crop"
+    
+    await message.answer_photo(
+        photo=menu_image,
+        caption=f"Головне меню 🏠\n\n"
+        "Оберіть, що ви хочете зробити:",
+        reply_markup=keyboard
+    )
+
+@dp.message(F.text == "📊 Мій профіль")
+async def keyboard_my_profile(message: Message):
+    """Обробник кнопки мого профілю"""
+    user_id = str(message.from_user.id)
+    
+    if user_id not in users_db:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Створити профіль", callback_data="create_profile")]
+        ])
+        await message.answer(
+            "У вас ще немає профілю 😔\n\n"
+            "Створіть профіль для отримання персональних рекомендацій!",
+            reply_markup=keyboard
+        )
+        return
+    
+    user = users_db[user_id]
+    profile_text = f"""
+👤 Ваш профіль:
+
+📋 Основні дані:
+• Стать: {user['gender']}
+• Вік: {user['age']} років
+• Зріст: {user['height']} см
+• Вага: {user['weight']} кг
+• Активність: {user['activity']}
+• Мета: {user['goal']}
+
+📊 Калорії:
+• Базовий метаболізм: {user['bmr']} ккал/день
+• Денна норма: {user['daily_calories']} ккал/день
+• Рекомендовано: {user['target_calories']} ккал/день
+
+💡 Корисні поради:
+• Білки: {round(user['target_calories'] * 0.3 / 4)}г на день
+• Жири: {round(user['target_calories'] * 0.25 / 9)}г на день
+• Вуглеводи: {round(user['target_calories'] * 0.45 / 4)}г на день
+    """
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Оновити профіль", callback_data="create_profile")],
+        [InlineKeyboardButton(text="🍎 Розрахувати калорії", callback_data="calculate_food")],
+        [InlineKeyboardButton(text="💧 Норма води", callback_data="water_intake"), InlineKeyboardButton(text="⚖️ ІМТ", callback_data="calculate_bmi")]
+    ])
+    
+    profile_image = "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop"
+    if user['gender'] == 'жінка':
+        profile_image = "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop"
+    else:
+        profile_image = "https://images.unsplash.com/photo-1581009146145-b5ef050c2e1e?w=800&h=600&fit=crop"
+    
+    await message.answer_photo(
+        photo=profile_image,
+        caption=profile_text,
+        reply_markup=keyboard
+    )
+
+@dp.message(F.text == "🍎 Калорії")
+async def keyboard_calculate_food(message: Message, state: FSMContext):
+    """Обробник кнопки розрахунку калорій"""
+    food_photo = "https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=800&h=600&fit=crop"
+    
+    await message.answer_photo(
+        photo=food_photo,
+        caption=f"🍎 Розрахунок калорій продукту\n\n"
+                f"У базі є {len(food_db)} продуктів! Ось деякі з них:\n\n"
+                f"🍎 Фрукти: яблуко, банан, апельсин\n"
+                f"🥕 Овочі: помідор, огірок, морква\n"
+                f"🍖 М'ясо: куриця, яловичина, свинина\n"
+                f"🐟 Риба: лосось, тунець, скумбрія\n"
+                f"🥛 Молочні: молоко, сир, йогурт\n"
+                f"🌾 Крупи: рис, гречка, вівсянка\n\n"
+                f"Просто введіть назву продукту:"
+    )
+    await state.set_state(FoodCalories.waiting_for_food)
+
+@dp.message(F.text == "💧 Вода")
+async def keyboard_water_intake(message: Message):
+    """Обробник кнопки норми води"""
+    user_id = str(message.from_user.id)
+    
+    if user_id not in users_db:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Створити профіль", callback_data="create_profile")]
+        ])
+        await message.answer(
+            "💧 Для розрахунку норми води потрібен профіль!\n\n"
+            "Створіть профіль для персональних рекомендацій:",
+            reply_markup=keyboard
+        )
+        return
+    
+    user = users_db[user_id]
+    water_ml = calculate_water_intake(user['weight'], user['activity'])
+    water_glasses = round(water_ml / 250)
+    
+    water_text = f"""
+💧 Ваша норма води:
+
+📊 Розрахунок:
+• Вага: {user['weight']} кг
+• Активність: {user['activity']}
+• Базова норма: 35 мл/кг
+
+💦 Рекомендації:
+• {water_ml} мл на день
+• Це приблизно {water_glasses} склянок по 250мл
+• Пийте рівномірно протягом дня
+
+💡 Корисні поради:
+• Почніть день зі склянки води
+• Пийте воду за 30 хв до їжі
+• Більше води при тренуваннях
+• Слідкуйте за кольором сечі (має бути світло-жовтою)
+    """
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="⚖️ Розрахунок ІМТ", callback_data="calculate_bmi")],
+        [InlineKeyboardButton(text="💡 Щоденні поради", callback_data="daily_tips")]
+    ])
+    
+    water_image = "https://images.unsplash.com/photo-1550583724-b2692b85b150?w=800&h=600&fit=crop"
+    
+    await message.answer_photo(
+        photo=water_image,
+        caption=water_text,
+        reply_markup=keyboard
+    )
+
+@dp.message(F.text == "⚖️ ІМТ")
+async def keyboard_calculate_bmi(message: Message):
+    """Обробник кнопки розрахунку ІМТ"""
+    user_id = str(message.from_user.id)
+    
+    if user_id not in users_db:
+        keyboard = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Створити профіль", callback_data="create_profile")]
+        ])
+        await message.answer(
+            "⚖️ Для розрахунку ІМТ потрібен профіль!\n\n"
+            "Створіть профіль для персональних рекомендацій:",
+            reply_markup=keyboard
+        )
+        return
+    
+    user = users_db[user_id]
+    bmi = calculate_bmi(user['weight'], user['height'])
+    category, emoji = get_bmi_category(bmi)
+    
+    # Рекомендації залежно від ІМТ
+    recommendations = {
+        "недостатня вага": "Рекомендуємо збільшити калорійність раціону та включити силові тренування",
+        "нормальна вага": "Чудово! Підтримуйте поточний спосіб життя",
+        "надлишкова вага": "Рекомендуємо помірне зниження калорійності та збільшення активності",
+        "ожиріння": "Рекомендуємо звернутися до лікаря та скласти план зниження ваги"
+    }
+    
+    bmi_text = f"""
+⚖️ Ваш індекс маси тіла (ІМТ):
+
+📊 Розрахунок:
+• Зріст: {user['height']} см
+• Вага: {user['weight']} кг
+• ІМТ: {bmi}
+
+{emoji} Категорія: {category}
+
+💡 Рекомендації:
+{recommendations[category]}
+
+📈 Шкала ІМТ:
+🔵 < 18.5 - недостатня вага
+🟢 18.5-24.9 - нормальна вага
+🟡 25.0-29.9 - надлишкова вага
+🔴 ≥ 30.0 - ожиріння
+    """
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💧 Норма води", callback_data="water_intake")],
+        [InlineKeyboardButton(text="💡 Щоденні поради", callback_data="daily_tips")]
+    ])
+    
+    bmi_image = "https://images.unsplash.com/photo-1571019613454-1cb2f99b2d8b?w=800&h=600&fit=crop"
+    
+    await message.answer_photo(
+        photo=bmi_image,
+        caption=bmi_text,
+        reply_markup=keyboard
+    )
+
+@dp.message(F.text == "💡 Поради")
+async def keyboard_daily_tips(message: Message):
+    """Обробник кнопки щоденних порад"""
+    import random
+    
+    tips = [
+        "🥗 Їжте 5 порцій овочів та фруктів на день",
+        "🚶 Робіть мінімум 10,000 кроків щодня",
+        "💤 Спіть 7-9 годин для відновлення організму",
+        "🥛 Пийте воду одразу після пробудження",
+        "🍽️ Їжте повільно та ретельно пережовуйте",
+        "🧘 Практикуйте медитацію 10 хвилин щодня",
+        "🏃 Додайте кардіо-тренування 3 рази на тиждень",
+        "💪 Силові тренування 2-3 рази на тиждень",
+        "🥜 Включайте здорові жири: горіхи, авокадо, олії",
+        "🐟 Їжте рибу 2-3 рази на тиждень",
+        "🚫 Уникайте цукру та обробленої їжі",
+        "📱 Зробіть перерву від телефону під час їжі",
+        "🌅 Отримуйте ранкове сонячне світло",
+        "🍃 Додавайте зелень у кожен прийом їжі",
+        "⏰ Дотримуйтесь режиму харчування",
+        "🧊 П'ите холодну воду для прискорення метаболізму",
+        "🥵 Додавайте гострі спеції для підвищення термогенезу",
+        "🛑 Не їжте за 3 години до сну",
+        "📊 Ведіть щоденник харчування",
+        "🎯 Ставте реалістичні цілі щотижня"
+    ]
+    
+    # Вибираємо 5 випадкових порад
+    daily_tips_list = random.sample(tips, 5)
+    tips_text = "\n".join([f"{i+1}. {tip}" for i, tip in enumerate(daily_tips_list)])
+    
+    user_id = str(message.from_user.id)
+    personalized_tip = ""
+    
+    if user_id in users_db:
+        user = users_db[user_id]
+        if user['goal'] == 'схуднути':
+            personalized_tip = "\n💡 Персональна порада: Створіть дефіцит калорій 300-500 ккал/день для здорового схуднення."
+        elif user['goal'] == 'набрати вагу':
+            personalized_tip = "\n💡 Персональна порада: Збільште калорійність на 300-500 ккал/день та додайте силові тренування."
+        else:
+            personalized_tip = "\n💡 Персональна порада: Підтримуйте баланс калорій та регулярну активність."
+    
+    tips_full_text = f"""
+💡 Щоденні поради для здоров'я:
+
+{tips_text}
+{personalized_tip}
+
+🌟 Пам'ятайте: маленькі кроки ведуть до великих змін!
+    """
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔄 Нові поради", callback_data="daily_tips")],
+        [InlineKeyboardButton(text="💧 Норма води", callback_data="water_intake")],
+        [InlineKeyboardButton(text="⚖️ Розрахунок ІМТ", callback_data="calculate_bmi")]
+    ])
+    
+    tips_image = "https://images.unsplash.com/photo-1506629905107-bb5842dcbc67?w=800&h=600&fit=crop"
+    
+    await message.answer_photo(
         photo=tips_image,
         caption=tips_full_text,
         reply_markup=keyboard

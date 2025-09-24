@@ -2,7 +2,7 @@ import asyncio
 import logging
 from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
-from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery
+from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
@@ -36,6 +36,18 @@ class FoodCalories(StatesGroup):
 
 # База даних користувачів (в реальному проекті краще використовувати БД)
 users_db = {}
+
+# Постійна клавіатура головного меню
+main_keyboard = ReplyKeyboardMarkup(
+    keyboard=[
+        [KeyboardButton(text="🏠 Головне меню"), KeyboardButton(text="📊 Мій профіль")],
+        [KeyboardButton(text="🍎 Калорії"), KeyboardButton(text="💧 Вода")],
+        [KeyboardButton(text="⚖️ ІМТ"), KeyboardButton(text="💡 Поради")]
+    ],
+    resize_keyboard=True,
+    persistent=True,
+    placeholder="Оберіть дію..."
+)
 
 # База даних продуктів (калорії на 100г) - Розширена база для хмари
 food_db = {
@@ -196,6 +208,12 @@ async def start_handler(message: Message):
                 "💡 Даю щоденні поради\n\n"
                 "Що ти хочеш зробити?",
         reply_markup=keyboard
+    )
+    
+    # Встановлюємо постійну клавіатуру
+    await message.answer(
+        "🎯 Швидкий доступ до функцій:",
+        reply_markup=main_keyboard
     )
 
 @dp.callback_query(F.data == "create_profile")
@@ -753,6 +771,74 @@ async def main_menu(callback: CallbackQuery):
         "Оберіть, що ви хочете зробити:",
         reply_markup=keyboard
     )
+
+# Обробники текстових команд з постійної клавіатури
+@dp.message(F.text.in_(["🏠 Головне меню", "/menu"]))
+async def keyboard_main_menu(message: Message):
+    """Обробник кнопки головного меню"""
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📊 Створити профіль", callback_data="create_profile")],
+        [InlineKeyboardButton(text="🍎 Розрахувати калорії продукту", callback_data="calculate_food")],
+        [InlineKeyboardButton(text="📈 Мій профіль", callback_data="my_profile")],
+        [InlineKeyboardButton(text="💧 Норма води", callback_data="water_intake")],
+        [InlineKeyboardButton(text="⚖️ Розрахунок ІМТ", callback_data="calculate_bmi")],
+        [InlineKeyboardButton(text="💡 Щоденні поради", callback_data="daily_tips")],
+        [InlineKeyboardButton(text="ℹ️ Допомога", callback_data="help")]
+    ])
+    
+    menu_image = "https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=800&h=600&fit=crop"
+    
+    await message.answer_photo(
+        photo=menu_image,
+        caption=f"Головне меню 🏠\n\n"
+        "Оберіть, що ви хочете зробити:",
+        reply_markup=keyboard
+    )
+
+@dp.message(F.text.in_(["📊 Мій профіль", "🍎 Калорії", "💧 Вода", "⚖️ ІМТ", "💡 Поради"]))
+async def keyboard_shortcuts(message: Message, state: FSMContext):
+    """Обробник кнопок швидкого доступу"""
+    text = message.text
+    
+    if text == "📊 Мій профіль":
+        # Перенаправляємо на callback обробник
+        from aiogram.types import CallbackQuery
+        fake_callback = type('obj', (object,), {
+            'message': message,
+            'from_user': message.from_user
+        })
+        await show_profile(fake_callback)
+        
+    elif text == "🍎 Калорії":
+        food_photo = "https://images.unsplash.com/photo-1498837167922-ddd27525d352?w=800&h=600&fit=crop"
+        await message.answer_photo(
+            photo=food_photo,
+            caption=f"🍎 Розрахунок калорій продукту\n\n"
+                    f"У базі є багато продуктів!\n\n"
+                    f"Просто введіть назву продукту:"
+        )
+        await state.set_state(FoodCalories.waiting_for_food)
+        
+    elif text == "💧 Вода":
+        fake_callback = type('obj', (object,), {
+            'message': message,
+            'from_user': message.from_user
+        })
+        await water_intake(fake_callback)
+        
+    elif text == "⚖️ ІМТ":
+        fake_callback = type('obj', (object,), {
+            'message': message,
+            'from_user': message.from_user
+        })
+        await calculate_bmi_handler(fake_callback)
+        
+    elif text == "💡 Поради":
+        fake_callback = type('obj', (object,), {
+            'message': message,
+            'from_user': message.from_user
+        })
+        await daily_tips(fake_callback)
 
 async def main():
     """Запуск бота"""

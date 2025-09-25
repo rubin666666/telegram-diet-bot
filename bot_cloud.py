@@ -1140,6 +1140,43 @@ async def process_food_weight_diary(message: types.Message, state: FSMContext):
     
     await state.clear()
 
+from aiogram import F
+from aiogram.types import Message
+
+# ВАЖЛИВО: Обробники кнопок мають бути ПЕРЕД обробниками FSM
+@dp.message(F.text == "🏠 Головне меню")
+async def main_menu_button(message: Message, state: FSMContext = None):
+    await main_menu(message)
+
+@dp.message(F.text == "📊 Мій профіль")
+async def profile_button(message: Message):
+    await show_profile(message)
+
+@dp.message(F.text == "🍎 Калорії")
+async def calories_button(message: Message, state: FSMContext):
+    await message.answer("🍎 Введіть назву продукту для розрахунку калорій:")
+    await state.set_state(FoodCalories.waiting_for_product)
+
+@dp.message(F.text == "💧 Вода")
+async def water_button(message: Message):
+    await show_water_recommendations(message)
+
+@dp.message(F.text == "⚖️ ІМТ")
+async def bmi_button(message: Message):
+    await show_bmi_info(message)
+
+@dp.message(F.text == "💡 Поради")
+async def tips_button(message: Message):
+    await show_daily_tips(message)
+
+@dp.message(F.text == "📈 Вага")
+async def weight_button(message: Message):
+    await show_weight_tracker_menu(message)
+
+@dp.message(F.text == "📅 Щоденник")
+async def diary_button(message: Message):
+    await show_food_diary_menu(message)
+
 async def main():
     """Запуск бота"""
     # Завантажуємо користувачів при старті

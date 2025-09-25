@@ -1,25 +1,34 @@
-import asyncio
-import logging
-from aiogram import Bot, Dispatcher, F, types
+import os
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart, Command
+from aiogram import types
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.fsm.storage.memory import MemoryStorage
-import json
-import os
 from datetime import datetime
+import asyncio
+import logging
+import json
+import random
 
 # Налаштування логування
 logging.basicConfig(level=logging.INFO)
 
-# Токен бота (отримайте від @BotFather)
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8458486366:AAH4DnunseoCOdyyRS7fueLKeW4ELSZc3QA")
+# Токен бота з змінних середовища
+BOT_TOKEN = os.getenv('BOT_TOKEN')
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN environment variable is not set!")
 
 # Ініціалізація бота та диспетчера
 bot = Bot(token=BOT_TOKEN)
 storage = MemoryStorage()
 dp = Dispatcher(storage=storage)
+
+print("🚀 Bot Cloud Version 3.0 - Fixed Menu Buttons")
+
+# Імпорт всіх класів, функцій та даних з основного файлу
+# (тут буде копія всього коду з bot.py, але з BOT_TOKEN = os.getenv('BOT_TOKEN'))
 
 # Стани для FSM
 class UserProfile(StatesGroup):

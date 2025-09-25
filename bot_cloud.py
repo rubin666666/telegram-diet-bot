@@ -1,6 +1,6 @@
 import asyncio
 import logging
-from aiogram import Bot, Dispatcher, F
+from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import CommandStart, Command
 from aiogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, ReplyKeyboardMarkup, KeyboardButton
 from aiogram.fsm.context import FSMContext
@@ -34,6 +34,18 @@ class FoodCalories(StatesGroup):
     waiting_for_food = State()
     waiting_for_weight_food = State()
 
+class WeightTracker(StatesGroup):
+    waiting_for_weight = State()
+
+class FoodDiary(StatesGroup):
+    waiting_for_food_diary = State()
+    waiting_for_food_weight_diary = State()
+
+class DishConstructor(StatesGroup):
+    waiting_for_dish_name = State()
+    waiting_for_ingredients = State()
+    waiting_for_ingredient_weight = State()
+
 # База даних користувачів (в реальному проекті краще використовувати БД)
 users_db = {}
 
@@ -42,7 +54,8 @@ main_keyboard = ReplyKeyboardMarkup(
     keyboard=[
         [KeyboardButton(text="🏠 Головне меню"), KeyboardButton(text="📊 Мій профіль")],
         [KeyboardButton(text="🍎 Калорії"), KeyboardButton(text="💧 Вода")],
-        [KeyboardButton(text="⚖️ ІМТ"), KeyboardButton(text="💡 Поради")]
+        [KeyboardButton(text="⚖️ ІМТ"), KeyboardButton(text="💡 Поради")],
+        [KeyboardButton(text="📈 Вага"), KeyboardButton(text="📅 Щоденник")]
     ],
     resize_keyboard=True,
     persistent=True,
@@ -178,6 +191,96 @@ def calculate_water_intake(weight, activity_level):
     
     water_ml = base_water * activity_multipliers.get(activity_level, 1.0)
     return round(water_ml)
+
+def add_weight_record(user_id, weight):
+    """Додавання запису ваги"""
+    if user_id not in users_db:
+        return False
+    
+    if 'weight_history' not in users_db[user_id]:
+        users_db[user_id]['weight_history'] = []
+    
+    weight_record = {
+        'weight': weight,
+        'date': datetime.now().isoformat(),
+        'timestamp': datetime.now().timestamp()
+    }
+    
+    users_db[user_id]['weight_history'].append(weight_record)
+    users_db[user_id]['weight'] = weight
+    
+    if len(users_db[user_id]['weight_history']) > 100:
+        users_db[user_id]['weight_history'] = users_db[user_id]['weight_history'][-100:]
+    
+    save_users()
+    return True
+
+def get_weight_progress(user_id):
+    """Отримання прогресу ваги"""
+    if user_id not in users_db or 'weight_history' not in users_db[user_id]:
+        return None
+    
+    history = users_db[user_id]['weight_history']
+    if len(history) < 2:
+        return None
+    
+    current = history[-1]
+    first = history[0]
+    
+    total_change = current['weight'] - first['weight']
+    
+    week_ago = datetime.now().timestamp() - (7 * 24 * 60 * 60)
+    recent_records = [r for r in history if r['timestamp'] > week_ago]
+    
+    week_change = 0
+    if len(recent_records) >= 2:
+        week_change = recent_records[-1]['weight'] - recent_records[0]['weight']
+    
+    return {
+        'total_change': total_change,
+        'week_change': week_change,
+        'current_weight': current['weight'],
+        'start_weight': first['weight'],
+        'records_count': len(history)
+    }
+
+def add_food_diary_entry(user_id, food_name, weight, calories):
+    """Додавання запису в щоденник харчування"""
+    if user_id not in users_db:
+        return False
+    
+    if 'food_diary' not in users_db[user_id]:
+        users_db[user_id]['food_diary'] = []
+    
+    diary_entry = {
+        'food_name': food_name,
+        'weight': weight,
+        'calories': calories,
+        'date': datetime.now().strftime('%Y-%m-%d'),
+        'time': datetime.now().strftime('%H:%M'),
+        'timestamp': datetime.now().timestamp()
+    }
+    
+    users_db[user_id]['food_diary'].append(diary_entry)
+    
+    if len(users_db[user_id]['food_diary']) > 1000:
+        users_db[user_id]['food_diary'] = users_db[user_id]['food_diary'][-1000:]
+    
+    save_users()
+    return True
+
+def get_daily_calories(user_id, date=None):
+    """Отримання калорій за день"""
+    if user_id not in users_db or 'food_diary' not in users_db[user_id]:
+        return 0, []
+    
+    if date is None:
+        date = datetime.now().strftime('%Y-%m-%d')
+    
+    daily_entries = [entry for entry in users_db[user_id]['food_diary'] if entry['date'] == date]
+    total_calories = sum(entry['calories'] for entry in daily_entries)
+    
+    return total_calories, daily_entries
 
 @dp.message(CommandStart())
 async def start_handler(message: Message):
@@ -839,6 +942,203 @@ async def keyboard_shortcuts(message: Message, state: FSMContext):
             'from_user': message.from_user
         })
         await daily_tips(fake_callback)
+
+# Обробники трекера ваги
+@dp.message(F.text == "📈 Вага")
+async def weight_tracker_menu(message: types.Message):
+    """Меню трекера ваги"""
+    user_id = str(message.from_user.id)
+    progress = get_weight_progress(user_id)
+    
+    if progress:
+        change_emoji = "📈" if progress['total_change'] >= 0 else "📉"
+        week_emoji = "📈" if progress['week_change'] >= 0 else "📉"
+        
+        text = f"📊 <b>Ваш прогрес ваги:</b>\n\n"
+        text += f"⚖️ Поточна вага: <b>{progress['current_weight']} кг</b>\n"
+        text += f"🎯 Початкова вага: {progress['start_weight']} кг\n"
+        text += f"{change_emoji} Загальний прогрес: <b>{progress['total_change']:+.1f} кг</b>\n"
+        text += f"{week_emoji} За тиждень: <b>{progress['week_change']:+.1f} кг</b>\n"
+        text += f"📝 Записів: {progress['records_count']}"
+    else:
+        text = "📊 <b>Трекер ваги</b>\n\n"
+        text += "У вас ще немає записів ваги.\n"
+        text += "Додайте перший запис для відстеження прогресу!"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Додати вагу", callback_data="add_weight")]
+    ])
+    
+    await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+@dp.callback_query(F.data == "add_weight")
+async def add_weight_callback(callback: types.CallbackQuery, state: FSMContext):
+    """Початок додавання ваги"""
+    await state.set_state(WeightTracker.waiting_for_weight)
+    await callback.message.edit_text(
+        "⚖️ <b>Введіть вашу поточну вагу</b>\n\n"
+        "Формат: число (наприклад, 70.5)\n"
+        "Діапазон: 30-300 кг",
+        parse_mode="HTML"
+    )
+    await callback.answer()
+
+@dp.message(WeightTracker.waiting_for_weight)
+async def process_weight_input(message: types.Message, state: FSMContext):
+    """Обробка введеної ваги"""
+    try:
+        weight = float(message.text.replace(',', '.'))
+        
+        if weight < 30 or weight > 300:
+            await message.answer(
+                "❌ Некоректна вага! Введіть значення від 30 до 300 кг.",
+                reply_markup=main_keyboard
+            )
+            return
+        
+        user_id = str(message.from_user.id)
+        success = add_weight_record(user_id, weight)
+        
+        if success:
+            progress = get_weight_progress(user_id)
+            
+            if progress and progress['records_count'] > 1:
+                change_emoji = "📈" if progress['total_change'] >= 0 else "📉"
+                text = f"✅ <b>Вага записана!</b>\n\n"
+                text += f"⚖️ Поточна вага: <b>{weight} кг</b>\n"
+                text += f"{change_emoji} Зміна: <b>{progress['total_change']:+.1f} кг</b>\n"
+                text += f"📝 Всього записів: {progress['records_count']}"
+            else:
+                text = f"✅ <b>Перший запис ваги додано!</b>\n\n"
+                text += f"⚖️ Вага: <b>{weight} кг</b>\n"
+                text += f"📅 Дата: {datetime.now().strftime('%d.%m.%Y')}"
+            
+            await message.answer(text, parse_mode="HTML", reply_markup=main_keyboard)
+        else:
+            await message.answer(
+                "❌ Помилка збереження. Спробуйте ще раз.",
+                reply_markup=main_keyboard
+            )
+    
+    except ValueError:
+        await message.answer(
+            "❌ Некоректний формат! Введіть число (наприклад, 70.5)",
+            reply_markup=main_keyboard
+        )
+    
+    await state.clear()
+
+# Обробники щоденника харчування
+@dp.message(F.text == "📅 Щоденник")
+async def food_diary_menu(message: types.Message):
+    """Меню щоденника харчування"""
+    user_id = str(message.from_user.id)
+    
+    today_calories, today_entries = get_daily_calories(user_id)
+    
+    recommended_calories = "не встановлено"
+    if user_id in users_db:
+        user = users_db[user_id]
+        if all(key in user for key in ['age', 'height', 'weight', 'sex', 'activity', 'goal']):
+            bmr = calculate_bmr(user['age'], user['height'], user['weight'], user['sex'])
+            recommended_calories = int(bmr * get_activity_multiplier(user['activity'], user['goal']))
+    
+    text = f"📅 <b>Щоденник харчування</b>\n\n"
+    text += f"📊 Сьогодні: <b>{today_calories} ккал</b>\n"
+    text += f"🎯 Норма: <b>{recommended_calories} ккал</b>\n"
+    
+    if isinstance(recommended_calories, int):
+        remaining = recommended_calories - today_calories
+        if remaining > 0:
+            text += f"🔋 Залишилось: <b>{remaining} ккал</b>\n"
+        else:
+            text += f"⚠️ Перевищення: <b>{abs(remaining)} ккал</b>\n"
+    
+    text += f"📝 Записів сьогодні: {len(today_entries)}"
+    
+    keyboard = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="➕ Додати їжу", callback_data="add_food_diary")]
+    ])
+    
+    await message.answer(text, parse_mode="HTML", reply_markup=keyboard)
+
+@dp.callback_query(F.data == "add_food_diary")
+async def add_food_diary_callback(callback: types.CallbackQuery, state: FSMContext):
+    """Початок додавання їжі в щоденник"""
+    await state.set_state(FoodDiary.waiting_for_food_diary)
+    await callback.message.edit_text(
+        "🍎 <b>Введіть назву продукту</b>\n\n"
+        "Наприклад: яблуко, хліб, курка, рис"
+    )
+    await callback.answer()
+
+@dp.message(FoodDiary.waiting_for_food_diary)
+async def process_food_diary_input(message: types.Message, state: FSMContext):
+    """Обробка назви продукту для щоденника"""
+    food_name = message.text.strip().lower()
+    
+    if len(food_name) < 2:
+        await message.answer("❌ Назва продукту занадто коротка. Спробуйте ще раз.")
+        return
+    
+    calories_per_100g = search_food_calories(food_name)
+    
+    if calories_per_100g:
+        await state.update_data(food_name=food_name, calories_per_100g=calories_per_100g)
+        await state.set_state(FoodDiary.waiting_for_food_weight_diary)
+        await message.answer(
+            f"✅ Знайдено: <b>{food_name}</b>\n"
+            f"📊 Калорійність: {calories_per_100g} ккал/100г\n\n"
+            f"⚖️ Введіть вагу в грамах:",
+            parse_mode="HTML"
+        )
+    else:
+        await message.answer(
+            f"❌ Продукт '{food_name}' не знайдено в базі.\n"
+            f"Спробуйте інший продукт або введіть більш точну назву.",
+            reply_markup=main_keyboard
+        )
+        await state.clear()
+
+@dp.message(FoodDiary.waiting_for_food_weight_diary)
+async def process_food_weight_diary(message: types.Message, state: FSMContext):
+    """Обробка ваги продукту для щоденника"""
+    try:
+        weight = float(message.text.replace(',', '.'))
+        
+        if weight <= 0 or weight > 5000:
+            await message.answer("❌ Некоректна вага! Введіть значення від 1 до 5000 грам.")
+            return
+        
+        data = await state.get_data()
+        food_name = data['food_name']
+        calories_per_100g = data['calories_per_100g']
+        
+        total_calories = round((calories_per_100g * weight) / 100)
+        
+        user_id = str(message.from_user.id)
+        success = add_food_diary_entry(user_id, food_name, weight, total_calories)
+        
+        if success:
+            today_calories, today_entries = get_daily_calories(user_id)
+            
+            text = f"✅ <b>Додано в щоденник!</b>\n\n"
+            text += f"🍎 Продукт: <b>{food_name}</b>\n"
+            text += f"⚖️ Вага: <b>{weight} г</b>\n"
+            text += f"🔥 Калорії: <b>{total_calories} ккал</b>\n\n"
+            text += f"📊 Всього за сьогодні: <b>{today_calories} ккал</b>"
+            
+            await message.answer(text, parse_mode="HTML", reply_markup=main_keyboard)
+        else:
+            await message.answer(
+                "❌ Помилка збереження. Спробуйте ще раз.",
+                reply_markup=main_keyboard
+            )
+    
+    except ValueError:
+        await message.answer("❌ Некоректний формат! Введіть число (наприклад, 150)")
+    
+    await state.clear()
 
 async def main():
     """Запуск бота"""
